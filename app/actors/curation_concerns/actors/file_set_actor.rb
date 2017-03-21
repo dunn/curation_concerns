@@ -32,17 +32,23 @@ module CurationConcerns
         yield(file_set) if block_given?
       end
 
-      # @param [File, ActionDigest::HTTP::UploadedFile, Tempfile] file the file uploaded by the user.
-      # @param [String] relation ('original_file')
-      def create_content(file, relation = 'original_file')
-        # If the file set doesn't have a title or label assigned, set a default.
-        file_set.label ||= file.respond_to?(:original_filename) ? file.original_filename : ::File.basename(file)
-        file_set.title = [file_set.label] if file_set.title.blank?
+      # @param [Array<Hash>] files_data The files uploaded by the
+      #   user, in hash format: relation => file:
+      #   {
+      #     original_file: [File, ActionDigest::HTTP::UploadedFile, Tempfile]
+      #     restored_file: [File, ActionDigest::HTTP::UploadedFile, Tempfile]
+      #   }
+      def create_content(file_data)
+        file_data.each do |file|
+          # If the file set doesn't have a title or label assigned, set a default.
+          file_set.label ||= file.respond_to?(:original_filename) ? file.original_filename : ::File.basename(file)
+          file_set.title = [file_set.label] if file_set.title.blank?
+        end
 
         # Need to save the file_set in order to get an id
         return false unless file_set.save
 
-        file_actor_class.new(file_set, relation, user).ingest_file(file)
+        file_actor_class.new(file_set, user).ingest_file(file_data)
         true
       end
 
@@ -50,7 +56,7 @@ module CurationConcerns
       # @param [String] relation ('original_file')
       def revert_content(revision_id, relation = 'original_file')
         file_actor = file_actor_class.new(file_set, relation, user)
-        if file_actor.revert_to(revision_id)
+        if file_actor.revert_to(relation, revision_id)
           CurationConcerns.config.callback.run(:after_revert_content, file_set, user, revision_id)
           true
         else
